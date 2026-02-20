@@ -1,0 +1,29 @@
+[package]
+name = "ngx_trading_engine"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "ngx-trading-engine"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.102"
+async-trait = "0.1.89"
+chrono = "0.4.43"
+clap = { version = "4.5.60", features = ["derive", "env"] }
+config = "0.15.19"
+csv = "1.4.0"
+dotenv = "0.15.0"
+duckdb = { version = "1.4.4", features = ["bundled"] }
+rand = "0.10.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["full"] }
+tokio-retry = "0.3.0"
+tracing = "0.1.44"
+url = "2.5.8"
+
+[dev-dependencies]
+tokio-test = "0.4.5"

@@ -1,0 +1,20 @@
+# NGX ETL Pipeline — Default Configuration
+# Override any key via environment variables: NGX__SCRAPER__BASE_URL, etc.
+# Or create a config/local.toml for machine-specific settings.
+
+[scraper]
+base_url          = "https://afx.kwayisi.org/ngx"
+timeout_secs      = 30
+request_delay_ms  = 1500   # 1.5s between requests — be polite
+jitter_ms         = 500    # adds 0–500ms random jitter
+max_retries       = 3
+user_agent        = "ngx-etl/0.1 (research; contact: you@example.com)"
+
+[storage]
+db_path           = "data/ngx.duckdb"
+run_migrations    = true
+
+[pipeline]
+backfill          = false  # set to true on first run to get all history
+concurrency       = 3      # parallel ticker fetches
+skip_up_to_date   = true   # skip tickers whose data is already current
