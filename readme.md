@@ -68,10 +68,19 @@ cargo run --release -- -v load-csv
 
 ---
 
----
-
 
 ## 3. Strategy logic
+1. Compute stock log return of 
+
+Estimate rolling 90-day regression:
+
+r_i = α + β_m r_m + β_fx r_fx
+
+Identify stocks with highest positive β_fx
+
+Long top N stocks
+
+Rebalance monthly
 
 ## 4. Backtesting
 - Walk-forward validation
