@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS tickers (
     symbol      VARCHAR PRIMARY KEY,
     name        VARCHAR NOT NULL DEFAULT '',
     sector      VARCHAR,
-    board       VARCHAR,
-    isin        VARCHAR,
+    industry    VARCHAR,
+    exchange    VARCHAR,
     scraped_at  TIMESTAMP NOT NULL
 );
 
@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS daily_bars (
     change      DOUBLE,
     change_pct  DOUBLE,
     volume      BIGINT,
-    deals       BIGINT,
     scraped_at  TIMESTAMP NOT NULL,
     PRIMARY KEY (symbol, date)
 );

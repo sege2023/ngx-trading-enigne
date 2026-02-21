@@ -102,5 +102,4 @@ pub struct RawHistoricalRow {
     pub close: Option<String>,
     pub change: Option<String>,
     pub volume: Option<String>,
-    pub deals: Option<String>,
 }
