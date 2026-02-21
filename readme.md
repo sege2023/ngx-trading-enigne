@@ -6,12 +6,42 @@ This project builds a full quantitative research pipeline to study the impact of
 
 Specifically, it tests whether Nigerian stock betas change during Naira depreciation regimes and whether these changes can be exploited via a long-only beta rotation strategy.
 
+
 ## Architecture
-1. ## Data ingestion(Rust)
+
+## Project structure
+
+```
+ngx-etl/
+├── data/                        # Put investing.com CSVs here (git-ignored)
+│   ├── DANGCEM_historical.csv
+│   └── GTCO_historical.csv
+├── src/
+│   ├── main.rs                  # CLI: load-csv | update | stats
+│   ├── config/                  # AppConfig (TOML + env)
+│   ├── models/                  # Ticker, DailyBar, RawCsvRow
+│   ├── loader/                  # CSV parser for investing.com
+│   ├── scraper/                 # Web scraper + cleaner (for updates)
+│   ├── storage/                 # DuckDB repo (upserts, queries)
+│   ├── pipeline/                # Orchestrator
+│   └── utils/                   # Timer, fmt_number
+└── config/
+    └── default.toml
+└── research/
+    └── research.md
+```
+
+---
+## 1. Data ingestion(Rust)
+- parses historical EOD equities data
+- parses USD/NGN FX rates
+- stores data in duckdb
 
 ## Data source
 ## [investing.com](https://www.investing.com)
-## CLI reference
+
+
+## 2. CLI reference
 
 ```bash
 # Bulk-import all CSVs from data/ folder
@@ -40,27 +70,16 @@ cargo run --release -- -v load-csv
 
 ---
 
-## Project structure
 
-```
-ngx-etl/
-├── data/                        # Put investing.com CSVs here (git-ignored)
-│   ├── DANGCEM_historical.csv
-│   └── GTCO_historical.csv
-├── src/
-│   ├── main.rs                  # CLI: load-csv | update | stats
-│   ├── config/                  # AppConfig (TOML + env)
-│   ├── models/                  # Ticker, DailyBar, RawCsvRow
-│   ├── loader/                  # CSV parser for investing.com
-│   ├── scraper/                 # Web scraper + cleaner (for updates)
-│   ├── storage/                 # DuckDB repo (upserts, queries)
-│   ├── pipeline/                # Orchestrator
-│   └── utils/                   # Timer, fmt_number
-└── config/
-    └── default.toml
-└── research/
-    └── research.md
-```
+## 3. Strategy logic
 
----
-
+## 4. Backtesting
+- Walk-forward validation
+- No lookahead bias
+- Rolling window recalibration
+- Out-of-sample regime testing
+- Performance metrics:
+    - Annualized return
+    - Volatility
+    - Sharpe ratio
+    - Max drawdown

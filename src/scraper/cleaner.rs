@@ -1,6 +1,5 @@
 //! Data cleaning: raw strings → validated domain types.
-
-use crate::models::{DailyBar, RawCsvRow, RawEquityRow, RawHistoricalRow, Ticker};
+use crate::models::{DailyBar, FxRate, RawCsvRow, RawEquityRow, RawFxCsvRow, RawHistoricalRow, RawTickerRow, Ticker};
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use tracing::warn;
 
@@ -104,6 +103,10 @@ pub fn normalise_symbol(s: &str) -> String {
     s.trim().to_uppercase()
 }
 
+pub fn normalise_pair(s: &str) -> String {
+    s.trim().to_uppercase().replace("/", "").replace(" ", "")
+}
+
 // ── Converters: investing.com CSV → DailyBar ─────────────────────────────────
 
 /// Convert a raw CSV row (investing.com format) into a DailyBar.
@@ -137,6 +140,37 @@ pub fn csv_row_to_bar(
     })
 }
 
+// ── FX CSV → FxRate ───────────────────────────────────────────────────────────
+
+pub fn fx_csv_row_to_rate(
+    pair: &str,
+    row: &RawFxCsvRow,
+    source: Option<&str>,
+    now: NaiveDateTime,
+) -> Option<FxRate> {
+    let date_str = row.date.as_deref()?.trim();
+    let date = parse_date(date_str)?;
+
+    let close_str = row.price.as_deref()?.trim();
+    let close = parse_price(close_str)?;
+
+    if close <= 0.0 {
+        warn!("Invalid FX rate {} for {} on {}", close, pair, date);
+        return None;
+    }
+
+    Some(FxRate {
+        pair: normalise_pair(pair),
+        date,
+        open: row.open.as_deref().and_then(parse_price),
+        high: row.high.as_deref().and_then(parse_price),
+        low: row.low.as_deref().and_then(parse_price),
+        close,
+        change_pct: row.change_pct.as_deref().and_then(parse_pct),
+        source: source.map(|s| s.to_string()),
+        scraped_at: now,
+    })
+}
 // ── Legacy converters (scraper compatibility) ────────────────────────────────
 
 pub fn raw_row_to_ticker(row: &RawEquityRow, now: NaiveDateTime) -> Option<Ticker> {
@@ -238,5 +272,12 @@ mod tests {
         assert_eq!(parse_pct("-0.50%"), Some(-0.50));
         assert_eq!(parse_pct("1.5"), Some(1.5));
         assert_eq!(parse_pct("N/A"), None);
+    }
+
+    #[test]
+    fn test_normalise_pair() {
+        assert_eq!(normalise_pair("USD/NGN"), "USDNGN");
+        assert_eq!(normalise_pair("usd ngn"), "USDNGN");
+        assert_eq!(normalise_pair("USDNGN"), "USDNGN");
     }
 }

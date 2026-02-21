@@ -1,4 +1,4 @@
-use crate::models::{DailyBar, Ticker};
+use crate::models::{DailyBar, Ticker, FxRate};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use duckdb::{params, Connection};
@@ -34,6 +34,19 @@ CREATE TABLE IF NOT EXISTS daily_bars (
     PRIMARY KEY (symbol, date)
 );
 
+CREATE TABLE IF NOT EXISTS fx_rates (
+    pair        VARCHAR  NOT NULL,
+    date        DATE     NOT NULL,
+    open        DOUBLE,
+    high        DOUBLE,
+    low         DOUBLE,
+    close       DOUBLE   NOT NULL,
+    change_pct  DOUBLE,
+    source      VARCHAR,
+    scraped_at  TIMESTAMP NOT NULL,
+    PRIMARY KEY (pair, date)
+);
+
 CREATE TABLE IF NOT EXISTS scrape_runs (
     id                  INTEGER PRIMARY KEY,
     started_at          TIMESTAMP NOT NULL,
@@ -53,6 +66,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 const INDEXES: &str = r#"
 CREATE INDEX IF NOT EXISTS idx_bars_date   ON daily_bars (date);
 CREATE INDEX IF NOT EXISTS idx_bars_symbol ON daily_bars (symbol);
+CREATE INDEX IF NOT EXISTS idx_fx_date     ON fx_rates (date);
+CREATE INDEX IF NOT EXISTS idx_fx_pair     ON fx_rates (pair);
 "#;
 
 // ── Repository ────────────────────────────────────────────────────────────────
@@ -181,6 +196,63 @@ impl Repository {
         let mut s = self.conn.prepare("SELECT MIN(date), MAX(date) FROM daily_bars")?;
         Ok(s.query_row([], |r| Ok((r.get(0)?, r.get(1)?)))?)
     }
+
+    // ── FX rates ──────────────────────────────────────────────────────────────
+
+    pub fn upsert_fx_rates(&self, rates: &[FxRate]) -> Result<usize> {
+        if rates.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = self.conn.unchecked_transaction()?;
+        let sql = r#"
+            INSERT INTO fx_rates
+                (pair, date, open, high, low, close, change_pct, source, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (pair, date) DO UPDATE SET
+                open       = COALESCE(excluded.open, fx_rates.open),
+                high       = COALESCE(excluded.high, fx_rates.high),
+                low        = COALESCE(excluded.low, fx_rates.low),
+                close      = excluded.close,
+                change_pct = COALESCE(excluded.change_pct, fx_rates.change_pct),
+                source     = COALESCE(excluded.source, fx_rates.source),
+                scraped_at = excluded.scraped_at
+        "#;
+
+        for rate in rates {
+            tx.execute(
+                sql,
+                params![
+                    rate.pair,
+                    rate.date,
+                    rate.open,
+                    rate.high,
+                    rate.low,
+                    rate.close,
+                    rate.change_pct,
+                    rate.source,
+                    rate.scraped_at,
+                ],
+            )
+            .with_context(|| format!("insert fx {} {}", rate.pair, rate.date))?;
+        }
+
+        tx.commit()?;
+        Ok(rates.len())
+    }
+
+    pub fn fx_count(&self) -> Result<i64> {
+        let mut s = self.conn.prepare("SELECT COUNT(*) FROM fx_rates")?;
+        Ok(s.query_row([], |r| r.get(0))?)
+    }
+
+    pub fn fx_date_range(&self) -> Result<(Option<chrono::NaiveDate>, Option<chrono::NaiveDate>)> {
+        let mut s = self
+            .conn
+            .prepare("SELECT MIN(date), MAX(date) FROM fx_rates")?;
+        Ok(s.query_row([], |r| Ok((r.get(0)?, r.get(1)?)))?)
+    }
+
 
     // ── Scrape run log ────────────────────────────────────────────────────────
 
