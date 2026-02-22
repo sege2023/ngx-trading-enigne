@@ -86,7 +86,7 @@ pub struct RawEquityRow {
     pub symbol: Option<String>,
     pub name: Option<String>,
     pub price: Option<String>,
-    pub change: Option<String>,
+    // pub change: Option<String>,
     pub change_pct: Option<String>,
     pub volume: Option<String>,
     pub deals: Option<String>,
@@ -100,6 +100,6 @@ pub struct RawHistoricalRow {
     pub high: Option<String>,
     pub low: Option<String>,
     pub close: Option<String>,
-    pub change: Option<String>,
+    // pub change: Option<String>,
     pub volume: Option<String>,
 }
