@@ -1,5 +1,6 @@
 use crate::config::ScraperConfig;
 use anyhow::{Context, Result};
+use rand::thread_rng;
 use rand::Rng;
 use std::time::Duration;
 use tokio::time::sleep;

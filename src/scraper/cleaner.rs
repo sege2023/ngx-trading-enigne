@@ -5,8 +5,7 @@ use tracing::warn;
 
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
-/// Parse price: strip everything except digits, dot, minus.
-/// "NGN 1,234.56" → 1234.56 | "610.00" → 610.0
+
 pub fn parse_price(s: &str) -> Option<f64> {
     let s = s.trim();
     if s.is_empty() || s == "N/A" || s == "-" || s == "—" {
@@ -19,8 +18,6 @@ pub fn parse_price(s: &str) -> Option<f64> {
     cleaned.parse().ok()
 }
 
-/// Parse volume with K/M/B suffixes.
-/// "1.2M" → 1,200,000 | "345K" → 345,000 | "12345" → 12345
 pub fn parse_volume_shorthand(s: &str) -> Option<i64> {
     let s = s.trim().to_uppercase().replace(',', "");
     
@@ -183,8 +180,8 @@ pub fn raw_row_to_ticker(row: &RawEquityRow, now: NaiveDateTime) -> Option<Ticke
         symbol,
         name: row.name.clone().unwrap_or_default().trim().to_string(),
         sector: row.sector.clone(),
-        board: None,
-        isin: None,
+        industry: row.sector.clone(),
+        exchange: row.exchange.clone(),
         scraped_at: now,
     })
 }

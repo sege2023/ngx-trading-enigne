@@ -1,7 +1,7 @@
 //! CSV loaders for investing.com data.
 
 use crate::models::{DailyBar, FxRate, RawCsvRow, RawFxCsvRow, RawTickerRow, Ticker};
-use crate::scraper::cleaner::{csv_row_to_bar, fx_csv_row_to_rate, ticker_row_to_ticker};
+use crate::scraper::cleaner::{csv_row_to_bar, fx_csv_row_to_rate, raw_row_to_ticker};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::{Path, PathBuf};

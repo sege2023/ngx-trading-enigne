@@ -138,7 +138,6 @@ fn find_history_rows(doc: &Html) -> Option<Vec<RawHistoricalRow>> {
                 close: cells.get(close_idx).cloned(),
                 change: change_idx.and_then(|i| cells.get(i)).cloned(),
                 volume: vol_idx.and_then(|i| cells.get(i)).cloned(),
-                deals: deals_idx.and_then(|i| cells.get(i)).cloned(),
             });
         }
 
@@ -168,10 +167,12 @@ fn find_history_rows(doc: &Html) -> Option<Vec<RawHistoricalRow>> {
 
         rows.push(RawHistoricalRow {
             date: cells.first().cloned(),
-            close: cells.get(1).cloned(),
-            change: cells.get(2).cloned(),
-            volume: cells.get(4).cloned(),
-            deals: cells.get(5).cloned(),
+            open: cells.get(1).cloned(), 
+            high: cells.get(2).cloned(),
+            low: cells.get(3).cloned(),
+            close: cells.get(4).cloned(),
+            change: cells.get(5).cloned(),
+            volume: cells.get(6).cloned(),
             ..Default::default()
         });
     }
