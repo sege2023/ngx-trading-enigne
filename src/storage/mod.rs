@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use crate::models::{DailyBar, Ticker, FxRate};
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -26,7 +27,6 @@ CREATE TABLE IF NOT EXISTS daily_bars (
     low         DOUBLE,
     -- Always present
     close       DOUBLE   NOT NULL,
-    change      DOUBLE,
     change_pct  DOUBLE,
     volume      BIGINT,
     scraped_at  TIMESTAMP NOT NULL,
@@ -72,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_fx_pair     ON fx_rates (pair);
 // ── Repository ────────────────────────────────────────────────────────────────
 
 pub struct Repository {
-    conn: Connection,
+    conn: Mutex<Connection>, // DuckDB connections are not thread-safe, so we wrap in a Mutex for shared access
 }
 
 impl Repository {
@@ -83,18 +83,19 @@ impl Repository {
         }
         let conn = Connection::open(path)
             .with_context(|| format!("Failed to open DuckDB at {:?}", path))?;
-        Ok(Self { conn })
+        Ok(Self { conn: Mutex::new(conn) })
     }
 
     pub fn open_in_memory() -> Result<Self> {
-        Ok(Self { conn: Connection::open_in_memory()? })
+        Ok(Self { conn: Mutex::new(Connection::open_in_memory()? )})
     }
 
     pub fn run_migrations(&self) -> Result<()> {
         info!("Running migrations…");
-        self.conn.execute_batch(DDL).context("DDL failed")?;
-        self.conn.execute_batch(INDEXES).context("Index creation failed")?;
-        self.conn.execute(
+        // self.conn.execute_batch(DDL).context("DDL failed")?;
+        self.conn.lock().unwrap().execute_batch(DDL).context("DDL failed")?;
+        self.conn.lock().unwrap().execute_batch(INDEXES).context("Index creation failed")?;
+        self.conn.lock().unwrap().execute(
             "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (1, ?)",
             params![Utc::now().naive_utc()],
         )?;
@@ -105,7 +106,7 @@ impl Repository {
     // ── Tickers ───────────────────────────────────────────────────────────────
 
     pub fn upsert_tickers(&self, tickers: &[Ticker]) -> Result<usize> {
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self.conn.lock().unwrap().unchecked_transaction()?;
         for t in tickers {
             tx.execute(
                 r#"INSERT INTO tickers (symbol, name, sector, board, isin, scraped_at)
@@ -113,10 +114,10 @@ impl Repository {
                    ON CONFLICT (symbol) DO UPDATE SET
                        name = excluded.name,
                        sector = COALESCE(excluded.sector, tickers.sector),
-                       board  = COALESCE(excluded.board,  tickers.board),
-                       isin   = COALESCE(excluded.isin,   tickers.isin),
+                       industry = COALESCE(excluded.industry, tickers.industry),
+                       exchange = COALESCE(excluded.exchange, tickers.exchange),
                        scraped_at = excluded.scraped_at"#,
-                params![t.symbol, t.name, t.sector, t.board, t.isin, t.scraped_at],
+                params![t.symbol, t.name, t.sector, t.industry, t.exchange, t.scraped_at],
             ).with_context(|| format!("upsert ticker {}", t.symbol))?;
         }
         tx.commit()?;
@@ -124,7 +125,7 @@ impl Repository {
     }
 
     pub fn list_symbols(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare("SELECT symbol FROM tickers ORDER BY symbol")?;
+        let mut stmt = self.conn.lock().unwrap().prepare("SELECT symbol FROM tickers ORDER BY symbol")?;
         let syms: Vec<String> = stmt
             .query_map([], |r| r.get(0))?
             .filter_map(|r| r.ok())
@@ -138,7 +139,7 @@ impl Repository {
     pub fn upsert_daily_bars(&self, bars: &[DailyBar]) -> Result<usize> {
         if bars.is_empty() { return Ok(0); }
 
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self.conn.lock().unwrap().unchecked_transaction()?;
         let sql = r#"
             INSERT INTO daily_bars
                 (symbol, date, open, high, low, close, change, change_pct, volume, deals, scraped_at)
@@ -148,7 +149,6 @@ impl Repository {
                 high        = COALESCE(excluded.high,       daily_bars.high),
                 low         = COALESCE(excluded.low,        daily_bars.low),
                 close       = excluded.close,
-                change      = COALESCE(excluded.change,     daily_bars.change),
                 change_pct  = COALESCE(excluded.change_pct, daily_bars.change_pct),
                 volume      = COALESCE(excluded.volume,     daily_bars.volume),
                 deals       = COALESCE(excluded.deals,      daily_bars.deals),
@@ -159,8 +159,8 @@ impl Repository {
             tx.execute(sql, params![
                 bar.symbol, bar.date,
                 bar.open, bar.high, bar.low,
-                bar.close, bar.change, bar.change_pct,
-                bar.volume, bar.deals,
+                bar.close,bar.change_pct,
+                bar.volume,
                 bar.scraped_at,
             ]).with_context(|| format!("insert bar {} {}", bar.symbol, bar.date))?;
         }
@@ -171,7 +171,7 @@ impl Repository {
 
     /// Latest date stored for a symbol — used to log scrape coverage.
     pub fn latest_date_for_symbol(&self, symbol: &str) -> Result<Option<chrono::NaiveDate>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.lock().unwrap().prepare(
             "SELECT MAX(date) FROM daily_bars WHERE symbol = ?"
         )?;
         let date: Option<chrono::NaiveDate> = stmt
@@ -182,17 +182,17 @@ impl Repository {
     }
 
     pub fn bar_count(&self) -> Result<i64> {
-        let mut s = self.conn.prepare("SELECT COUNT(*) FROM daily_bars")?;
+        let mut s = self.conn.lock().unwrap().prepare("SELECT COUNT(*) FROM daily_bars")?;
         Ok(s.query_row([], |r| r.get(0))?)
     }
 
     pub fn ticker_count(&self) -> Result<i64> {
-        let mut s = self.conn.prepare("SELECT COUNT(*) FROM tickers")?;
+        let mut s = self.conn.lock().unwrap().prepare("SELECT COUNT(*) FROM tickers")?;
         Ok(s.query_row([], |r| r.get(0))?)
     }
 
     pub fn date_range(&self) -> Result<(Option<chrono::NaiveDate>, Option<chrono::NaiveDate>)> {
-        let mut s = self.conn.prepare("SELECT MIN(date), MAX(date) FROM daily_bars")?;
+        let mut s = self.conn.lock().unwrap().prepare("SELECT MIN(date), MAX(date) FROM daily_bars")?;
         Ok(s.query_row([], |r| Ok((r.get(0)?, r.get(1)?)))?)
     }
 
@@ -203,7 +203,7 @@ impl Repository {
             return Ok(0);
         }
 
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self.conn.lock().unwrap().unchecked_transaction()?;
         let sql = r#"
             INSERT INTO fx_rates
                 (pair, date, open, high, low, close, change_pct, source, scraped_at)
@@ -241,14 +241,14 @@ impl Repository {
     }
 
     pub fn fx_count(&self) -> Result<i64> {
-        let mut s = self.conn.prepare("SELECT COUNT(*) FROM fx_rates")?;
+        let mut s = self.conn.lock().unwrap().prepare("SELECT COUNT(*) FROM fx_rates")?;
         Ok(s.query_row([], |r| r.get(0))?)
     }
 
     pub fn fx_date_range(&self) -> Result<(Option<chrono::NaiveDate>, Option<chrono::NaiveDate>)> {
         let mut s = self
             .conn
-            .prepare("SELECT MIN(date), MAX(date) FROM fx_rates")?;
+            .lock().unwrap().prepare("SELECT MIN(date), MAX(date) FROM fx_rates")?;
         Ok(s.query_row([], |r| Ok((r.get(0)?, r.get(1)?)))?)
     }
 
@@ -256,11 +256,11 @@ impl Repository {
     // ── Scrape run log ────────────────────────────────────────────────────────
 
     pub fn begin_scrape_run(&self) -> Result<i64> {
-        self.conn.execute(
+        self.conn.lock().unwrap().execute(
             "INSERT INTO scrape_runs (started_at, status) VALUES (?, 'running')",
             params![Utc::now().naive_utc()],
         )?;
-        let id: i64 = self.conn.query_row(
+        let id: i64 = self.conn.lock().unwrap().query_row(
             "SELECT last_insert_rowid()", [], |r| r.get(0),
         )?;
         Ok(id)
@@ -269,7 +269,7 @@ impl Repository {
     pub fn finish_scrape_run(
         &self, run_id: i64, tickers: usize, bars: usize, error: Option<&str>,
     ) -> Result<()> {
-        self.conn.execute(
+        self.conn.lock().unwrap().execute(
             r#"UPDATE scrape_runs SET
                finished_at = ?, status = ?,
                tickers_processed = ?, bars_inserted = ?, error_msg = ?
