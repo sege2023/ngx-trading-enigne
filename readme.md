@@ -69,7 +69,7 @@ cargo run --release -- -v load-csv
 ---
 
 
-## 3. Strategy logic(hypothetical)
+## 3. Strategy logic: research phase logic deifned, backtesting in progress
 - Compute stock log return of equities(for both NGN and USD-adjusted)
 
 ```sql
