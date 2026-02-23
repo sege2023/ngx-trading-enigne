@@ -12,7 +12,7 @@ Specifically, it tests whether Nigerian stock betas change during Naira deprecia
 ## Project structure
 
 ```
-ngx-etl/
+ngx-trading_engine/
 ├── data/                        # Put investing.com CSVs here (git-ignored)
 │   ├── DANGCEM_historical.csv
 │   └── GTCO_historical.csv
@@ -51,7 +51,7 @@ cargo run --release -- load-csv
 cargo run --release -- load-csv --dir /path/to/csvs
 
 # Daily incremental update (scraper/API mode)
-cargo run --release -- update
+# cargo run --release -- update (will be released later)
 
 # Show DB stats (row counts, date range)
 cargo run --release -- stats
@@ -69,18 +69,44 @@ cargo run --release -- -v load-csv
 ---
 
 
-## 3. Strategy logic
-1. Compute stock log return of 
+## 3. Strategy logic(hypothetical)
+- Compute stock log return of equities(for both NGN and USD-adjusted)
 
-Estimate rolling 90-day regression:
+```sql
+-- Stock log return for NGN
+SELECT 
+    symbol,
+    date,
+    close,
+    LN(close / LAG(close, 1) OVER (PARTITION BY symbol ORDER BY date)) AS log_return
+FROM daily_bars
+WHERE symbol = 'DANGCEM'
+ORDER BY date DESC
+LIMIT 20;
+```
+- compute fx log return
+```sql
+SELECT
+    pair,
+    date,
+    close,
+    LN(close / LAG(close, 1) OVER (PARTITION BY pair ORDER BY date)) AS log_return
+FROM fx_rates
+WHERE pair = 'USDNGN'
+ORDER BY date;
+```
+we woud also compute log return for NGX 30 market index
 
-r_i = α + β_m r_m + β_fx r_fx
+## Compute beta for market index and fx
 
-Identify stocks with highest positive β_fx
+## Estimate rolling 90-day regression:
+    r_i = α + β_m r_m + β_fx r_fx
 
-Long top N stocks
+-  Identify stocks with highest positive β_fx
 
-Rebalance monthly
+-  Long top N stocks
+
+-  Rebalance monthly
 
 ## 4. Backtesting
 - Walk-forward validation

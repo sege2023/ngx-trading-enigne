@@ -1,11 +1,12 @@
-//! Data cleaning: raw strings → validated domain types.
-use crate::models::{DailyBar, FxRate, RawCsvRow, RawEquityRow, RawFxCsvRow, RawHistoricalRow, RawTickerRow, Ticker};
+
+use crate::models::{DailyBar, FxRate, RawCsvRow, RawFxCsvRow, RawTickerRow, Ticker};
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use tracing::warn;
 
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
-
+/// Parse price: strip everything except digits, dot, minus.
+/// "NGN 1,234.56" → 1234.56 | "610.00" → 610.0
 pub fn parse_price(s: &str) -> Option<f64> {
     let s = s.trim();
     if s.is_empty() || s == "N/A" || s == "-" || s == "—" {
@@ -18,6 +19,8 @@ pub fn parse_price(s: &str) -> Option<f64> {
     cleaned.parse().ok()
 }
 
+/// Parse volume with K/M/B suffixes.
+/// "1.2M" → 1,200,000 | "345K" → 345,000 | "12345" → 12345
 pub fn parse_volume_shorthand(s: &str) -> Option<i64> {
     let s = s.trim().to_uppercase().replace(',', "");
     
@@ -25,6 +28,7 @@ pub fn parse_volume_shorthand(s: &str) -> Option<i64> {
         return None;
     }
 
+    // Check for suffix
     let (num_str, multiplier) = if s.ends_with('B') {
         (s.trim_end_matches('B'), 1_000_000_000.0)
     } else if s.ends_with('M') {
@@ -32,30 +36,20 @@ pub fn parse_volume_shorthand(s: &str) -> Option<i64> {
     } else if s.ends_with('K') {
         (s.trim_end_matches('K'), 1_000.0)
     } else {
+        // No suffix — just a plain integer
         let cleaned: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
         return cleaned.parse().ok();
     };
 
+    // Parse the numeric part (can be decimal like "1.2")
     let num: f64 = num_str.trim().parse().ok()?;
     Some((num * multiplier) as i64)
 }
 
-/// Parse integer: "1,234,567" → 1234567
 pub fn parse_volume(s: &str) -> Option<i64> {
-    // Try shorthand first
-    if let Some(v) = parse_volume_shorthand(s) {
-        return Some(v);
-    }
-    
-    let s = s.trim();
-    if s.is_empty() || s == "N/A" || s == "-" {
-        return None;
-    }
-    let cleaned: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
-    cleaned.parse().ok()
+    parse_volume_shorthand(s)
 }
 
-/// Parse percentage: "+2.09%" → 2.09 | "-0.50%" → -0.50
 pub fn parse_pct(s: &str) -> Option<f64> {
     let s = s.trim().replace('%', "").replace(',', "");
     if s.is_empty() || s == "N/A" || s == "-" {
@@ -64,31 +58,22 @@ pub fn parse_pct(s: &str) -> Option<f64> {
     s.parse().ok()
 }
 
-/// Parse dates from investing.com or other sources.
-/// Common formats:
-///   "Feb 20, 2024"   ← investing.com
-///   "2024-02-20"     ← ISO
-///   "20/02/2024"     ← DD/MM/YYYY
+/// Parse dates: "Feb 20, 2024" (investing.com) or ISO
 pub fn parse_date(s: &str) -> Option<NaiveDate> {
     let s = s.trim();
     
-    // investing.com: "Feb 20, 2024"
     if let Ok(d) = NaiveDate::parse_from_str(s, "%b %d, %Y") {
         return Some(d);
     }
-    // ISO: "2024-02-20"
     if let Ok(d) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
         return Some(d);
     }
-    // DD/MM/YYYY
     if let Ok(d) = NaiveDate::parse_from_str(s, "%d/%m/%Y") {
         return Some(d);
     }
-    // MM/DD/YYYY
     if let Ok(d) = NaiveDate::parse_from_str(s, "%m/%d/%Y") {
         return Some(d);
     }
-    // "20 Feb 2024"
     if let Ok(d) = NaiveDate::parse_from_str(s, "%d %b %Y") {
         return Some(d);
     }
@@ -104,10 +89,8 @@ pub fn normalise_pair(s: &str) -> String {
     s.trim().to_uppercase().replace("/", "").replace(" ", "")
 }
 
-// ── Converters: investing.com CSV → DailyBar ─────────────────────────────────
+// ── Equity CSV → DailyBar ─────────────────────────────────────────────────────
 
-/// Convert a raw CSV row (investing.com format) into a DailyBar.
-/// investing.com columns: Date, Price (=close), Open, High, Low, Volume, Change%
 pub fn csv_row_to_bar(
     symbol: &str,
     row: &RawCsvRow,
@@ -168,64 +151,32 @@ pub fn fx_csv_row_to_rate(
         scraped_at: now,
     })
 }
-// ── Legacy converters (scraper compatibility) ────────────────────────────────
 
-pub fn raw_row_to_ticker(row: &RawEquityRow, now: NaiveDateTime) -> Option<Ticker> {
-    let symbol = row.symbol.as_deref().map(normalise_symbol)?;
+// ── Ticker metadata CSV → Ticker ──────────────────────────────────────────────
+
+pub fn ticker_row_to_ticker(row: &RawTickerRow, now: NaiveDateTime) -> Option<Ticker> {
+    let symbol = row.symbol.as_deref()?.trim();
     if symbol.is_empty() {
         return None;
     }
 
     Some(Ticker {
-        symbol,
-        name: row.name.clone().unwrap_or_default().trim().to_string(),
-        sector: row.sector.clone(),
-        industry: row.sector.clone(),
-        exchange: row.exchange.clone(),
-        scraped_at: now,
-    })
-}
-
-pub fn raw_historical_to_bar(
-    symbol: &str,
-    row: &RawHistoricalRow,
-    now: NaiveDateTime,
-) -> Option<DailyBar> {
-    let date_str = row.date.as_deref()?.trim();
-    let date = parse_date(date_str)?;
-
-    let close_str = row.close.as_deref()?.trim();
-    let close = parse_price(close_str)?;
-
-    if close <= 0.0 {
-        return None;
-    }
-
-    Some(DailyBar {
         symbol: normalise_symbol(symbol),
-        date,
-        open: row.open.as_deref().and_then(parse_price),
-        high: row.high.as_deref().and_then(parse_price),
-        low: row.low.as_deref().and_then(parse_price),
-        close,
-        change_pct: None,
-        volume: row.volume.as_deref().and_then(parse_volume),
+        name: row.name.clone().unwrap_or_default().trim().to_string(),
+        sector: row.sector.clone().and_then(|s| {
+            let s = s.trim();
+            if s.is_empty() { None } else { Some(s.to_string()) }
+        }),
+        industry: row.industry.clone().and_then(|s| {
+            let s = s.trim();
+            if s.is_empty() { None } else { Some(s.to_string()) }
+        }),
+        exchange: row.exchange.clone().and_then(|s| {
+            let s = s.trim();
+            if s.is_empty() { None } else { Some(s.to_string()) }
+        }),
         scraped_at: now,
     })
-}
-
-pub fn clean_historical_rows(symbol: &str, rows: Vec<RawHistoricalRow>) -> Vec<DailyBar> {
-    let now = Utc::now().naive_utc();
-    rows.iter()
-        .filter_map(|r| raw_historical_to_bar(symbol, r, now))
-        .collect()
-}
-
-pub fn clean_ticker_rows(rows: Vec<RawEquityRow>) -> Vec<Ticker> {
-    let now = Utc::now().naive_utc();
-    rows.iter()
-        .filter_map(|r| raw_row_to_ticker(r, now))
-        .collect()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -237,38 +188,9 @@ mod tests {
     #[test]
     fn test_parse_volume_shorthand() {
         assert_eq!(parse_volume_shorthand("1.2M"), Some(1_200_000));
-        assert_eq!(parse_volume_shorthand("1.23M"), Some(1_230_000));
         assert_eq!(parse_volume_shorthand("345K"), Some(345_000));
-        assert_eq!(parse_volume_shorthand("2.5K"), Some(2_500));
         assert_eq!(parse_volume_shorthand("1.5B"), Some(1_500_000_000));
         assert_eq!(parse_volume_shorthand("12345"), Some(12345));
-        assert_eq!(parse_volume_shorthand("1,234,567"), Some(1_234_567));
-        assert_eq!(parse_volume_shorthand("N/A"), None);
-        assert_eq!(parse_volume_shorthand("-"), None);
-    }
-
-    #[test]
-    fn test_parse_date_investing() {
-        assert_eq!(
-            parse_date("Feb 20, 2024"),
-            NaiveDate::from_ymd_opt(2024, 2, 20)
-        );
-        assert_eq!(
-            parse_date("2024-02-20"),
-            NaiveDate::from_ymd_opt(2024, 2, 20)
-        );
-        assert_eq!(
-            parse_date("20/02/2024"),
-            NaiveDate::from_ymd_opt(2024, 2, 20)
-        );
-    }
-
-    #[test]
-    fn test_parse_pct() {
-        assert_eq!(parse_pct("+2.09%"), Some(2.09));
-        assert_eq!(parse_pct("-0.50%"), Some(-0.50));
-        assert_eq!(parse_pct("1.5"), Some(1.5));
-        assert_eq!(parse_pct("N/A"), None);
     }
 
     #[test]

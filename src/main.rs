@@ -10,7 +10,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tracing::info;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{fmt, EnvFilter, prelude::*};
 
 use crate::config::AppConfig;
 use crate::loader::{discover_csv_files, load_equity_csv, load_fx_csv, load_tickers_csv};

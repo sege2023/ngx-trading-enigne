@@ -62,7 +62,7 @@ pub struct RawCsvRow {
 #[derive(Debug, Clone, Default)]
 pub struct RawFxCsvRow {
     pub date: Option<String>,
-    pub price: Option<String>,      
+    pub price: Option<String>,      // close rate
     pub open: Option<String>,
     pub high: Option<String>,
     pub low: Option<String>,
@@ -77,29 +77,4 @@ pub struct RawTickerRow {
     pub sector: Option<String>,
     pub industry: Option<String>,
     pub exchange: Option<String>,
-}
-
-// ── Legacy raw types (scraper compatibility) ──────────────────────────────────
-
-#[derive(Debug, Clone, Default)]
-pub struct RawEquityRow {
-    pub symbol: Option<String>,
-    pub name: Option<String>,
-    pub price: Option<String>,
-    // pub change: Option<String>,
-    pub change_pct: Option<String>,
-    pub volume: Option<String>,
-    pub deals: Option<String>,
-    pub sector: Option<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct RawHistoricalRow {
-    pub date: Option<String>,
-    pub open: Option<String>,
-    pub high: Option<String>,
-    pub low: Option<String>,
-    pub close: Option<String>,
-    // pub change: Option<String>,
-    pub volume: Option<String>,
 }
